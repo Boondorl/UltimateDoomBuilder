@@ -31,12 +31,40 @@ namespace CodeImp.DoomBuilder.ZDoom
 
 		internal CvarInfoParser()
 		{
+			specialtokens = "\n;()=";
 			cvars = new CvarsCollection();
 		}
 
 		#endregion
 
 		#region ================== Parsing
+
+		private bool ParseCVarHandler(string token)
+		{
+			bool failed = false;
+			if (token == "handlerclass")
+			{
+				if (!NextTokenIs("("))
+				{
+					failed = true;
+				}
+				else
+				{
+					SkipWhitespace(true);
+					ReadToken();
+					if (!NextTokenIs(")"))
+						failed = true;
+				}
+			}
+
+			if (failed)
+			{
+				ReportError($"Malformed CVar handler, expected handlerclass(\"classname\")");
+				return false;
+			}
+
+			return true;
+		}
 
 		public override bool Parse(TextResourceData data, bool clearerrors)
 		{
@@ -52,14 +80,14 @@ namespace CodeImp.DoomBuilder.ZDoom
 
 			// Continue until at the end of the stream
 			HashSet<string> knowntypes = new HashSet<string> { "int", "float", "color", "bool", "string" };
-			HashSet<string> flags = new HashSet<string> { "user", "server", "nosave", "noarchive", "cheat", "latch" };
+			HashSet<string> flags = new HashSet<string> { "user", "server", "nosave", "noarchive", "cheat", "latch", "handlerclass" };
 			while(SkipWhitespace(true))
 			{
 				string token = ReadToken().ToLowerInvariant();
 				if(string.IsNullOrEmpty(token)) continue;
 
 				// According to the ZDoom wikie (https://zdoom.org/wiki/CVARINFO) the format has to be
-				//   <scope> [noarchive] [cheat] [latch] <type> <name> [= <defaultvalue>];
+				//   <scope> [noarchive] [cheat] [latch] [handlerclass("handler")] <type> <name> [= <defaultvalue>];
 				// where <scope> is one of "user", "server", or "nosave". This it just the intended format, GZDoom actually
 				// accepts and combination of the scope variables (apparently for backwards compatibility), even when it
 				// doesn't make sense.
@@ -67,6 +95,9 @@ namespace CodeImp.DoomBuilder.ZDoom
 
 				if (flags.Contains(token))
 				{
+					if (!ParseCVarHandler(token))
+						return false;
+
 					// read (skip) flags
 					while (true)
 					{
@@ -80,6 +111,9 @@ namespace CodeImp.DoomBuilder.ZDoom
 							DataStream.Seek(-flagtoken.Length - 1, SeekOrigin.Current);
 							break;
 						}
+
+						if (!ParseCVarHandler(token))
+							return false;
 					}
 
 					// Next should be the type
